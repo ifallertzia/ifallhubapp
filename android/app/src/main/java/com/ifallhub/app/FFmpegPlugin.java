@@ -27,7 +27,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * Capacitor bridge to FFmpegKit (com.arthenica:ffmpeg-kit-full-gpl).
+ * Capacitor bridge to FFmpegKitNext (com.arthenica:ffmpeg-kit-next).
  *
  * <p>Powers H.265/HEVC and .mkv playback for the Ifallhub app: {@link
  * #startTranscode} live-transcodes an unsupported stream to H.264/AAC and

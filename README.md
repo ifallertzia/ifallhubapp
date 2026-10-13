@@ -4,7 +4,7 @@
 
 **Native Android application for [Ifallhub](https://github.com/ifallertzia/ifallhub) — movies, series aur anime with playback, server rotation, recommendations, watchlist and watch tracker.**
 
-Built with **Capacitor 6** + **Mobile-FFmpeg** · App name: `ifallhub` · Package: `com.ifallhub.app` · Android 8.0+ (API 26+)
+Built with **Capacitor 6** + **FFmpegKitNext** · App name: `ifallhub` · Package: `com.ifallhub.app` · Android 8.0+ (API 26+)
 
 </div>
 
@@ -14,7 +14,7 @@ Built with **Capacitor 6** + **Mobile-FFmpeg** · App name: `ifallhub` · Packag
 
 This repository is the **Capacitor Android wrapper** for the Ifallhub web app. It ports the complete web frontend (Discover, Search, Watch, My List, Tracker — including the full playback engine) to a native Android package and adds:
 
-- **Mobile-FFmpeg (`com.arthenica:mobile-ffmpeg-full:4.4.LTS`)** — live H.265/HEVC → H.264 transcoding so *every* release plays in-app (the web build can only hint "open in VLC" for HEVC/.mkv).
+- **FFmpegKitNext (`com.arthenica:ffmpeg-kit-next:9.0.0`, full-GPL)** — live H.265/HEVC → H.264 transcoding so *every* release plays in-app (the web build can only hint "open in VLC" for HEVC/.mkv). The pinned local Maven bundle is fetched with an SHA-256 check because the original Mobile-FFmpeg/FFmpegKit Maven Central artifacts are retired.
 - **Native loopback stream server** — the transcode is served to the WebView `<video>` element as a growing fragmented MP4, so the entire overlay UI (gestures, subtitles, quality menu) keeps working.
 - **Capacitor Preferences** — watchlist/ratings/progress survive restarts even when the engine is offline.
 - **Configurable engine URL** — point the app at your own Ifallhub engine (`cargo run -- --web-api`) from the in-app Settings dialog.
@@ -40,7 +40,7 @@ Everything from [ifallertzia/ifallhub](https://github.com/ifallertzia/ifallhub) 
 | **Music** | IfallMusic hand-off link |
 | **Extras** | Dark theme, bilingual copy (Hindi + English), toasts, offline-tolerant library |
 
-### 🎬 H.265/HEVC — the Mobile-FFmpeg path
+### 🎬 H.265/HEVC — the FFmpegKitNext path
 
 The web player ranks HEVC/.mkv releases last because browsers cannot decode them. On Android the app instead:
 
@@ -63,7 +63,7 @@ ifallhubapp/
 ├── android/                   # Capacitor Android project
 │   └── app/src/main/java/com/ifallhub/app/
 │       ├── MainActivity.java      # registers the FFmpeg plugin
-│       ├── FFmpegPlugin.java      # Mobile-FFmpeg bridge (transcode/execute/openExternal)
+│       ├── FFmpegPlugin.java      # FFmpegKitNext bridge (transcode/execute/openExternal)
 │       └── LocalStreamServer.java # loopback HTTP progressive streamer
 ├── src/                       # web app (ported from ifallhub/web, vanilla JS + Vite)
 │   ├── lib/                   # api client, formatting, router, library store, recommendations
@@ -110,6 +110,7 @@ On Android, open **Settings (gear icon)** in the top bar and enter the engine UR
 npm install
 npm run build
 npx cap sync android
+bash scripts/fetch-ffmpeg-kit-next.sh    # downloads + verifies the pinned native bundle
 cd android && ./gradlew assembleDebug    # or assembleRelease
 # install: android/app/build/outputs/apk/debug/app-debug.apk
 ```
@@ -156,6 +157,6 @@ npm test             # 49 tests: engine rotation/scoring, title matching, format
 ## 🙏 Credits
 
 - Web app & engine: [ifallertzia/ifallhub](https://github.com/ifallertzia/ifallhub) (based on MovieBox-TUI)
-- Transcoding: [mobile-ffmpeg](https://github.com/tanersener/mobile-ffmpeg) (`com.arthenica:mobile-ffmpeg-full:4.4.LTS`)
+- Transcoding: [FFmpegKitNext](https://github.com/arthenica/ffmpeg-kit-next) (`com.arthenica:ffmpeg-kit-next:9.0.0`, full-GPL); the pinned binary bundle is built from that upstream source and integrity-checked in `scripts/fetch-ffmpeg-kit-next.sh`.
 - DASH/HLS playback: [shaka-player](https://github.com/shaka-project/shaka-player)
 - App shell: [Capacitor](https://capacitorjs.com)

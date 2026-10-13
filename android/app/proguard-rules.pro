@@ -14,9 +14,9 @@
 -keepattributes *Annotation*
 -dontwarn com.getcapacitor.**
 
-# --- Mobile-FFmpeg ---------------------------------------------------------
--keep class com.arthenica.mobileffmpeg.** { *; }
--dontwarn com.arthenica.mobileffmpeg.**
+# --- FFmpegKitNext ---------------------------------------------------------
+-keep class com.arthenica.ffmpegkit.** { *; }
+-dontwarn com.arthenica.ffmpegkit.**
 
 # --- WebView JS bridge -----------------------------------------------------
 -keepclassmembers class fqcn.of.javascript.interface.for.webview {

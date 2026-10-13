@@ -2,7 +2,7 @@
   "name": "ifallhub",
   "version": "1.0.0",
   "private": true,
-  "description": "Ifallhub — movies, series and anime with playback, recommendations, watchlist and watch tracker. Android app (Capacitor + Mobile-FFmpeg).",
+  "description": "Ifallhub — movies, series and anime with playback, recommendations, watchlist and watch tracker. Android app (Capacitor + FFmpegKitNext).",
   "type": "module",
   "scripts": {
     "dev": "vite --host 0.0.0.0",

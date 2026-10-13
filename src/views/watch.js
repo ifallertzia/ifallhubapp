@@ -951,7 +951,7 @@ function paintStreams() {
       const mirrors = release.mirrors?.length ? release.mirrors : [{ label: '' }];
       const reason = unsupportedReason(release);
       const warning = reason
-        ? ` <span class="stream-warning" title="Mobile-FFmpeg ise live-transcode karke play karega.">⚡ ${reason === 'container' ? 'FFmpeg transcode' : 'H.265 · FFmpeg transcode'}</span>`
+        ? ` <span class="stream-warning" title="FFmpegKitNext ise live-transcode karke play karega.">⚡ ${reason === 'container' ? 'FFmpeg transcode' : 'H.265 · FFmpeg transcode'}</span>`
         : '';
       return `
         <div class="stream-row ${index === state.selected ? 'is-active' : ''}">

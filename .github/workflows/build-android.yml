@@ -116,6 +116,10 @@ jobs:
       - name: Sync Capacitor project
         run: npx cap sync android
 
+      - name: Fetch pinned FFmpegKitNext bundle
+        shell: bash
+        run: bash scripts/fetch-ffmpeg-kit-next.sh
+
       - name: Build Android APK
         shell: bash
         run: |
@@ -161,9 +165,9 @@ jobs:
           name: Ifallhub Android v1.0.${{ github.run_number }}
           body: |
             ## What's New
-            - Ifallhub Android app (Capacitor + Mobile-FFmpeg)
+            - Ifallhub Android app (Capacitor + FFmpegKitNext)
             - Discover, Search, Watch, My List and Tracker — full web feature parity
-            - H.265/HEVC + MKV playback via Mobile-FFmpeg live transcoding
+            - H.265/HEVC + MKV playback via FFmpegKitNext live transcoding
             - Server rotation, quality picking, subtitles, watchlist, ratings, progress
 
             ## Download

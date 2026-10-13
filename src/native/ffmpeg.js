@@ -1,7 +1,7 @@
-// Capacitor bridge to the native Mobile-FFmpeg plugin (android/app/src/main/
+// Capacitor bridge to the native FFmpegKitNext plugin (android/app/src/main/
 // java/com/ifallhub/app/FFmpegPlugin.java).
 //
-// The plugin bundles com.arthenica:mobile-ffmpeg-full and exposes:
+// The plugin bundles com.arthenica:ffmpeg-kit-next and exposes:
 //   getVersion()                     -> { version }
 //   execute({ args })                -> { success, returnCode, output }
 //   startTranscode({ inputUrl, headers })

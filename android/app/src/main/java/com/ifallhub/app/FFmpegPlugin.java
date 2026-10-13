@@ -11,9 +11,10 @@ import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
 
-import com.arthenica.mobileffmpeg.Config;
-import com.arthenica.mobileffmpeg.ExecuteCallback;
-import com.arthenica.mobileffmpeg.FFmpeg;
+import com.arthenica.ffmpegkit.FFmpegKit;
+import com.arthenica.ffmpegkit.FFmpegKitConfig;
+import com.arthenica.ffmpegkit.FFmpegSession;
+import com.arthenica.ffmpegkit.ReturnCode;
 
 import org.json.JSONObject;
 
@@ -26,7 +27,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * Capacitor bridge to Mobile-FFmpeg (com.arthenica:mobile-ffmpeg-full).
+ * Capacitor bridge to FFmpegKit (com.arthenica:ffmpeg-kit-full-gpl).
  *
  * <p>Powers H.265/HEVC and .mkv playback for the Ifallhub app: {@link
  * #startTranscode} live-transcodes an unsupported stream to H.264/AAC and
@@ -49,11 +50,11 @@ public class FFmpegPlugin extends Plugin {
     public void getVersion(PluginCall call) {
         JSObject ret = new JSObject();
         try {
-            ret.put("version", Config.getFFmpegVersion());
-            ret.put("buildConfig", String.valueOf(Config.getFFmpegVersion()));
+            ret.put("version", FFmpegKitConfig.getFFmpegVersion());
+            ret.put("buildConfig", FFmpegKitConfig.getVersion());
             call.resolve(ret);
         } catch (Exception error) {
-            call.reject("Unable to read the Mobile-FFmpeg version: " + error.getMessage(), error);
+            call.reject("Unable to read the FFmpegKit version: " + error.getMessage(), error);
         }
     }
 
@@ -66,19 +67,14 @@ public class FFmpegPlugin extends Plugin {
             return;
         }
         executor.execute(() -> {
-            StringBuilder log = new StringBuilder();
-            Config.enableLogCallback(message -> {
-                synchronized (log) {
-                    if (log.length() < 16_384) log.append(message.getText()).append('\n');
-                }
-            });
-            int returnCode = FFmpeg.execute(args.toArray(new String[0]));
+            FFmpegSession session = FFmpegKit.executeWithArguments(args.toArray(new String[0]));
+            String output = session.getAllLogsAsString();
+            if (output.length() > 16_384) output = output.substring(0, 16_384);
             JSObject ret = new JSObject();
-            ret.put("success", returnCode == Config.RETURN_CODE_SUCCESS);
-            ret.put("returnCode", returnCode);
-            synchronized (log) {
-                ret.put("output", log.toString());
-            }
+            ret.put("success", ReturnCode.isSuccess(session.getReturnCode()));
+            ret.put("returnCode", session.getReturnCode() != null
+                    ? session.getReturnCode().getValue() : -1);
+            ret.put("output", output);
             call.resolve(ret);
         });
     }
@@ -109,10 +105,10 @@ public class FFmpegPlugin extends Plugin {
             int port = streamServer.start();
 
             String[] args = buildTranscodeArgs(inputUrl, call.getObject("headers"), transcodeOutput);
-            long session = FFmpeg.executeAsync(args, (ExecuteCallback) (sessionId, returnCode) -> {
-                Log.i(TAG, "transcode finished rc=" + returnCode);
+            FFmpegSession session = FFmpegKit.executeWithArgumentsAsync(args, finished -> {
+                Log.i(TAG, "transcode finished rc=" + finished.getReturnCode());
             });
-            activeSession.set(session);
+            activeSession.set(session.getSessionId());
 
             JSObject ret = new JSObject();
             ret.put("playbackUrl", streamServer.getPlaybackUrl());
@@ -121,7 +117,7 @@ public class FFmpegPlugin extends Plugin {
         } catch (Exception error) {
             Log.e(TAG, "startTranscode failed", error);
             stopTranscodeInternal();
-            call.reject("Could not start the Mobile-FFmpeg transcode: " + error.getMessage(), error);
+            call.reject("Could not start the FFmpegKit transcode: " + error.getMessage(), error);
         }
     }
 
@@ -239,7 +235,7 @@ public class FFmpegPlugin extends Plugin {
         long session = activeSession.getAndSet(0L);
         if (session != 0L) {
             try {
-                FFmpeg.cancel(session);
+                FFmpegKit.cancel(session);
                 stopped = true;
             } catch (Exception error) {
                 Log.w(TAG, "cancel failed", error);

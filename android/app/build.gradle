@@ -64,11 +64,10 @@ dependencies {
     androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
     implementation project(':capacitor-cordova-android-plugins')
 
-    // Mobile-FFmpeg (full build ships libx264/aac + HEVC decode) — powers the
-    // H.265/HEVC live-transcode path used by the Ifallhub player.
-    // v4.4 is the Android artifact retained on Maven Central. The LTS-suffixed
-    // coordinate was never published there, so resolving it breaks clean CI runs.
-    implementation 'com.arthenica:mobile-ffmpeg-full:4.4'
+    // FFmpegKit's full-GPL package supplies libx264/aac plus HEVC decoding for
+    // the live-transcode path used by the Ifallhub player. Mobile-FFmpeg's
+    // historical Maven artifacts are no longer resolvable in clean CI builds.
+    implementation 'com.arthenica:ffmpeg-kit-full-gpl:6.0-2'
 }
 
 apply from: 'capacitor.build.gradle'

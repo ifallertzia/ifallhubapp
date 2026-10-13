@@ -7,6 +7,11 @@ on:
     branches: [main, master]
   workflow_dispatch:
 
+# The release step creates a tag and a release on main; repositories with the
+# default read-only Actions token require this explicit grant.
+permissions:
+  contents: write
+
 jobs:
   test-web:
     name: Web unit tests

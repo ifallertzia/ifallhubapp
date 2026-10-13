@@ -1,11 +1,12 @@
 // Thin client for the Ifallhub API.
 //
 // Web deployments run same-origin (the server proxies /api/* to the Rust
-// engine). The Android app instead points at a configurable engine URL stored
-// on device (Settings dialog → engine URL + access key), so the same client
+// engine). The Android app points at the public engine by default, with an
+// optional per-device engine URL and access key in Settings, so the same client
 // code works in both. The access key (when the operator set one) is attached
 // to every call and never leaves this device.
 
+import { Capacitor } from '@capacitor/core';
 import { escapeHtml } from './format.js';
 import { readSetting, writeSetting } from './storage.js';
 
@@ -14,7 +15,7 @@ const ENGINE_URL_STORAGE = 'ifallhub_engine_url';
 
 // Default engine used by the Android app when nothing is configured yet.
 // Override it from the in-app Settings dialog (gear icon in the top bar).
-const DEFAULT_ENGINE_URL = 'https://ifallhub.onrender.com';
+export const DEFAULT_ENGINE_URL = 'https://ifallhub.onrender.com';
 
 export const state = {
   engine: 'checking', // checking | connected | demo | offline
@@ -60,6 +61,26 @@ export function getEngineUrl() {
 }
 
 /**
+ * Resolve a playback/media URL returned by the engine.
+ *
+ * The API intentionally returns same-origin media routes such as
+ * `/api/media/<token>/https/...`. In the Android WebView, however, the app is
+ * served from `https://localhost` while the engine lives at Render. Resolve
+ * those relative routes against the configured engine, not the WebView origin.
+ */
+export function resolvePlaybackUrl(rawUrl) {
+  const value = String(rawUrl || '').trim();
+  if (!value) return '';
+  const base = getEngineUrl() || (typeof window !== 'undefined' ? window.location.origin : '');
+  try {
+    const url = new URL(value, base || undefined);
+    return ['http:', 'https:'].includes(url.protocol) ? url.href : '';
+  } catch {
+    return '';
+  }
+}
+
+/**
  * Absolute URL for an API path. Same-origin (`/api/...`) when no engine is
  * configured (web deployment), otherwise `${engineUrl}/api/...`.
  */
@@ -99,10 +120,14 @@ export function setAccessKey(key) {
 }
 
 /** Loads (and remembers) the engine URL configured on this device. */
-export async function loadEngineConfig() {
+export async function loadEngineConfig({ isNative = Capacitor.isNativePlatform() } = {}) {
   const stored = (await readSetting(ENGINE_URL_STORAGE)) || '';
   const key = (await readSetting(ACCESS_KEY_STORAGE)) || '';
-  state.engineUrl = String(stored || '').replace(/\/+$/, '');
+  const configured = String(stored || '').trim().replace(/\/+$/, '');
+  // Android ships as a standalone app, so it must not default to the WebView's
+  // `https://localhost` origin. The public Ifallhub deployment is the built-in
+  // engine; browser deployments still use their own same-origin API.
+  state.engineUrl = configured || (isNative ? DEFAULT_ENGINE_URL : '');
   if (key && !getAccessKey()) {
     try {
       localStorage.setItem(ACCESS_KEY_STORAGE, key);
@@ -114,8 +139,11 @@ export async function loadEngineConfig() {
 }
 
 /** Switches the engine URL at runtime (Settings dialog). */
-export async function setEngineUrl(url) {
-  state.engineUrl = String(url || '').replace(/\/+$/, '');
+export async function setEngineUrl(url, { isNative = Capacitor.isNativePlatform() } = {}) {
+  const configured = String(url || '').trim().replace(/\/+$/, '');
+  // Clearing the Android field restores its built-in engine instead of sending
+  // future requests back to the WebView's localhost origin.
+  state.engineUrl = configured || (isNative ? DEFAULT_ENGINE_URL : '');
   await writeSetting(ENGINE_URL_STORAGE, state.engineUrl);
   // Re-check the engine against the new URL.
   return checkEngine();

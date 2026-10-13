@@ -17,17 +17,18 @@ import {
   stopTranscode,
 } from '../native/ffmpeg.js';
 
-/** Release text that looks like H.265/HEVC. */
-export function isH265Url(url) {
-  const text = String(url || '').toLowerCase();
-  return (
-    text.includes('_h265_') ||
-    text.includes('hevc') ||
-    text.includes('h.265') ||
-    text.includes('x265') ||
-    text.includes('hvc1') ||
-    text.includes('hev1')
-  );
+const H265_CODEC_PATTERN = /(?:^|[^a-z0-9])(?:hevc|h\.?\s*265|x\.?\s*265|hvc1|hev1|hvc2|dvh1|dolby[\s._-]*vision)(?:$|[^a-z0-9])/i;
+
+/** Release text or URL that looks like H.265/HEVC. */
+export function isH265Url(value) {
+  const text = String(value || '');
+  let decoded = text;
+  try {
+    decoded = decodeURIComponent(text);
+  } catch {
+    // A signed URL can contain a literal percent; the raw text is still useful.
+  }
+  return H265_CODEC_PATTERN.test(`${text} ${decoded}`);
 }
 
 /** Container types the WebView cannot demux without FFmpeg. */

@@ -101,9 +101,9 @@
         <button class="dialog-close" type="button" data-close aria-label="Close">×</button>
         <p class="kicker">SETTINGS</p>
         <h2>Engine connection</h2>
-        <p>The app streams titles from your Ifallhub engine (the Rust API). Enter its URL once — it is saved on this device.</p>
+        <p>Android connects to <code>https://ifallhub.onrender.com</code> by default. Change the URL only to use another engine; browser deployments can leave it blank to use their same-origin API.</p>
         <form id="settings-form" class="access-form">
-          <input type="url" id="engine-url-input" placeholder="https://your-ifallhub-engine.example.com" autocomplete="url" />
+          <input type="url" id="engine-url-input" placeholder="https://ifallhub.onrender.com" autocomplete="url" />
           <input type="password" id="settings-access-input" placeholder="Access key (optional)" autocomplete="current-password" />
           <button class="primary-button" type="submit">Save &amp; reconnect</button>
         </form>

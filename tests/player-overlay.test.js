@@ -6,6 +6,7 @@ import {
   PLAYER_CONTROL_IDS,
   PLAYER_REGIONS,
   formatPlayerTime,
+  usesCompactBar,
 } from '../src/player/overlay.js';
 
 test('player time uses mm:ss and switches to hh:mm:ss for long media', () => {
@@ -15,6 +16,14 @@ test('player time uses mm:ss and switches to hh:mm:ss for long media', () => {
   assert.equal(formatPlayerTime(3600), '01:00:00');
   assert.equal(formatPlayerTime(3661), '01:01:01');
   assert.equal(formatPlayerTime(-10), '0:00');
+});
+
+test('compact controls fit phone and touch tablet widths but not desktop', () => {
+  assert.equal(usesCompactBar(390), true);
+  assert.equal(usesCompactBar(820), true);
+  assert.equal(usesCompactBar(900, true), true);
+  assert.equal(usesCompactBar(900, false), false);
+  assert.equal(usesCompactBar(1200, true), false);
 });
 
 test('player layout defines the seven configurable regions and supported controls', () => {

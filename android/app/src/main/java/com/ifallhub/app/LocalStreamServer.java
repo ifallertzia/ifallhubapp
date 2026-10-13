@@ -29,6 +29,7 @@ public class LocalStreamServer {
 
     private final File file;
     private final AtomicBoolean running = new AtomicBoolean(false);
+    private final AtomicBoolean finished = new AtomicBoolean(false);
     private ServerSocket serverSocket;
     private Thread acceptThread;
     private volatile Thread clientThread;
@@ -41,6 +42,7 @@ public class LocalStreamServer {
     public synchronized int start() throws IOException {
         if (running.get() && serverSocket != null) return serverSocket.getLocalPort();
         serverSocket = new ServerSocket(0, 8, InetAddress.getByName("127.0.0.1"));
+        finished.set(false);
         running.set(true);
         acceptThread = new Thread(this::acceptLoop, "ifallhub-stream-accept");
         acceptThread.setDaemon(true);
@@ -58,6 +60,11 @@ public class LocalStreamServer {
 
     public boolean isRunning() {
         return running.get();
+    }
+
+    /** Marks the growing media file complete so connected clients receive EOF. */
+    public void finish() {
+        finished.set(true);
     }
 
     /** Stops the server and closes any streaming client. */
@@ -139,7 +146,8 @@ public class LocalStreamServer {
 
             // Wait until the transcoder has produced at least the header bytes.
             long waited = 0L;
-            while (running.get() && raf.length() <= startOffset && waited < MAX_TAIL_WAIT_MS) {
+            while (running.get() && !finished.get()
+                    && raf.length() <= startOffset && waited < MAX_TAIL_WAIT_MS) {
                 Thread.sleep(200L);
                 waited += 200L;
             }
@@ -174,8 +182,9 @@ public class LocalStreamServer {
                     out.flush();
                     position += read;
                 } else if (read < 0) {
-                    // EOF on a finished file.
-                    if (!running.get()) break;
+                    // Tail a live file, but close the response once FFmpeg has
+                    // completed so the media element can detect end-of-stream.
+                    if (!running.get() || finished.get()) break;
                     Thread.sleep(120L);
                 } else {
                     Thread.sleep(120L);

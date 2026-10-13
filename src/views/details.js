@@ -299,12 +299,13 @@ async function loadStreams() {
       button.addEventListener('click', async () => {
         button.disabled = true;
         try {
-          const filename = await downloadRelease({
+          const result = await downloadRelease({
             entry: state.entry,
             releaseIndex: Number(button.dataset.release),
             mirrorIndex: Number(button.dataset.mirror || 0),
+            onStatus: (message) => toast(message, 'info'),
           });
-          toast(`Download started: ${filename}`, 'success');
+          toast(`${result.completed ? 'Download saved' : 'Download started'}: ${result.filename}`, 'success');
         } catch (error) {
           toast(error?.message || 'Download could not start.', 'error');
         } finally {

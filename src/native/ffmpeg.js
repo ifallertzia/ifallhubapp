@@ -10,6 +10,8 @@
 //       MP4 over a loopback HTTP server the WebView <video> element can play.
 //   stopTranscode()                  -> { stopped }
 //   isTranscoding()                  -> { active, playbackUrl }
+//   downloadFile({ url, fileName })  -> { ok, downloadId, fileName }
+//   downloadStream({ inputUrl, fileName, headers }) -> { success, fileName, uri, sizeBytes }
 
 import { Capacitor, registerPlugin } from '@capacitor/core';
 
@@ -74,4 +76,22 @@ export async function openExternal(url) {
   } catch {
     return { ok: false };
   }
+}
+
+/** Queue a normal HTTP file download into Android Downloads. */
+export async function downloadFile({ url, fileName } = {}) {
+  if (!isNativePlatform() || !url) return { ok: false };
+  try {
+    return await FFmpeg.downloadFile({ url, fileName });
+  } catch (error) {
+    return { ok: false, error: String(error?.message || error) };
+  }
+}
+
+/** Fetch and mux a segmented DASH/HLS stream to one MKV in Android Downloads. */
+export async function downloadAdaptiveStream({ inputUrl, fileName, headers = {} } = {}) {
+  if (!isNativePlatform() || !inputUrl) {
+    throw new Error('Segmented-stream downloads are available in the Android app.');
+  }
+  return FFmpeg.downloadStream({ inputUrl, fileName, headers });
 }

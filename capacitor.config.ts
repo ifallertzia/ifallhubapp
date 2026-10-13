@@ -6,9 +6,9 @@ const config: CapacitorConfig = {
   webDir: 'dist',
 
   server: {
-    // The Capacitor WebView is not same-origin with the Ifallhub engine, so the
-    // app talks to a configurable engine URL (Settings dialog) instead of a
-    // baked-in proxy. androidScheme keeps cookies/storage in the modern scheme.
+    // The Capacitor WebView is not same-origin with the Ifallhub engine; the
+    // app connects to its built-in public engine URL unless overridden in
+    // Settings. androidScheme keeps cookies/storage in the modern scheme.
     androidScheme: 'https',
     cleartext: true,
   },

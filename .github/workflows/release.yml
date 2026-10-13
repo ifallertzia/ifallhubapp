@@ -8,6 +8,10 @@ on:
         required: true
         default: '1.0.0'
 
+# softprops/action-gh-release creates a tag and release using GITHUB_TOKEN.
+permissions:
+  contents: write
+
 jobs:
   release:
     name: Create Release

@@ -83,13 +83,23 @@ jobs:
           fi
 
       - name: Build Android APK
+        shell: bash
         run: |
+          set -o pipefail
           npx cap sync android
           cd android
           chmod +x ./gradlew
-          ./gradlew assembleRelease
+          ./gradlew assembleRelease --stacktrace 2>&1 | tee ../gradle-build.log | tail -80
           cd app/build/outputs/apk/release
           cp app-release.apk "ifallhub-${{ github.event.inputs.version }}.apk"
+
+      - name: Upload Gradle log (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gradle-build-log
+          path: gradle-build.log
+          retention-days: 7
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2

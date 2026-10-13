@@ -67,9 +67,11 @@ jobs:
           if [ ! -x "$SDKMANAGER" ]; then
             SDKMANAGER="$(find "$SDK_ROOT/cmdline-tools" -name sdkmanager -type f 2>/dev/null | head -1)"
           fi
+          echo "sdkmanager: $SDKMANAGER"
           if [ -n "$SDKMANAGER" ]; then
-            yes | "$SDKMANAGER" --licenses > /dev/null 2>&1 || true
-            "$SDKMANAGER" "platforms;android-34" "build-tools;34.0.0" > /dev/null 2>&1 || true
+            (yes | "$SDKMANAGER" --licenses) > /dev/null 2>&1 || true
+            "$SDKMANAGER" --list_installed 2>/dev/null | head -20 || true
+            "$SDKMANAGER" "platforms;android-34" "build-tools;34.0.0" 2>&1 | tail -3 || true
           fi
           echo "Android SDK at $SDK_ROOT"
 
@@ -108,10 +110,20 @@ jobs:
         run: npx cap sync android
 
       - name: Build Android APK
+        shell: bash
         run: |
+          set -o pipefail
           cd android
           chmod +x ./gradlew
-          ./gradlew assembleRelease
+          ./gradlew assembleRelease --stacktrace 2>&1 | tee ../gradle-build.log | tail -80
+
+      - name: Upload Gradle log (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gradle-build-log
+          path: gradle-build.log
+          retention-days: 7
 
       - name: Rename APK
         run: |

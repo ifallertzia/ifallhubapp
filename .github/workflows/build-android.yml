@@ -1,0 +1,136 @@
+name: Build Android APK
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+jobs:
+  test-web:
+    name: Web unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run unit tests
+        run: npm test
+
+  build:
+    name: Build Android APK
+    runs-on: ubuntu-latest
+    needs: test-web
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build web assets
+        run: npm run build
+
+      - name: Setup Java JDK
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Accept Android licenses
+        run: yes | sdkmanager --licenses > /dev/null || true
+
+      - name: Prepare signing keystore
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEYSTORE_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_ALIAS_PASSWORD }}
+        run: |
+          if [ -n "$KEYSTORE_B64" ]; then
+            echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.keystore"
+            {
+              echo "ANDROID_KEYSTORE_PATH=$RUNNER_TEMP/release.keystore"
+              echo "ANDROID_KEYSTORE_PASSWORD=$KEYSTORE_PASSWORD"
+              echo "ANDROID_KEYSTORE_ALIAS=$KEY_ALIAS"
+              echo "ANDROID_KEYSTORE_ALIAS_PASSWORD=$KEY_PASSWORD"
+            } >> "$GITHUB_ENV"
+          else
+            # No release keystore configured — generate a throwaway one so the
+            # CI APK is signed and installable for testing.
+            keytool -genkeypair -v \
+              -keystore "$RUNNER_TEMP/release.keystore" \
+              -storepass ifallhub -keypass ifallhub \
+              -alias ifallhub -keyalg RSA -keysize 2048 -validity 30 \
+              -dname "CN=ifallhub CI, OU=App, O=Ifallhub, C=IN"
+            {
+              echo "ANDROID_KEYSTORE_PATH=$RUNNER_TEMP/release.keystore"
+              echo "ANDROID_KEYSTORE_PASSWORD=ifallhub"
+              echo "ANDROID_KEYSTORE_ALIAS=ifallhub"
+              echo "ANDROID_KEYSTORE_ALIAS_PASSWORD=ifallhub"
+            } >> "$GITHUB_ENV"
+          fi
+
+      - name: Sync Capacitor project
+        run: npx cap sync android
+
+      - name: Build Android APK
+        run: |
+          cd android
+          chmod +x ./gradlew
+          ./gradlew assembleRelease
+
+      - name: Rename APK
+        run: |
+          cd android/app/build/outputs/apk/release
+          cp app-release.apk ifallhub-release.apk
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ifallhub-apk
+          path: android/app/build/outputs/apk/release/ifallhub-release.apk
+          retention-days: 30
+
+      - name: Create GitHub Release (on main merge)
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: android/app/build/outputs/apk/release/ifallhub-release.apk
+          tag_name: v1.0.${{ github.run_number }}
+          name: Ifallhub Android v1.0.${{ github.run_number }}
+          body: |
+            ## What's New
+            - Ifallhub Android app (Capacitor + Mobile-FFmpeg)
+            - Discover, Search, Watch, My List and Tracker — full web feature parity
+            - H.265/HEVC + MKV playback via Mobile-FFmpeg live transcoding
+            - Server rotation, quality picking, subtitles, watchlist, ratings, progress
+
+            ## Download
+            [Download APK](https://github.com/${{ github.repository }}/releases/download/v1.0.${{ github.run_number }}/ifallhub-release.apk)
+
+            App name: **ifallhub** · Package: `com.ifallhub.app` · Android 8.0+ (API 26+)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

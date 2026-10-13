@@ -1,0 +1,20 @@
+# Dependencies
+node_modules/
+
+# Web build output
+dist/
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+*.log
+
+# Signing secrets (CI provides these as repository secrets)
+*.keystore
+*.jks
+google-services.json
+
+# Environment
+.env
+.env.*

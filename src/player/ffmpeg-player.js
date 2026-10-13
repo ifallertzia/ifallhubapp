@@ -1,7 +1,7 @@
 // H.265/HEVC handling for the Ifallhub player.
 //
 // On the web this module historically used ffmpeg.wasm; on Android the heavy
-// lifting is done natively by Mobile-FFmpeg (com.arthenica:mobile-ffmpeg-full)
+// lifting is done natively by FFmpegKitNext (com.arthenica:ffmpeg-kit-next)
 // through the Capacitor `FFmpeg` plugin. The plugin live-transcodes unsupported
 // releases (H.265/HEVC, .mkv containers, Dolby Vision) to H.264/AAC and serves
 // the fragmented MP4 from a loopback HTTP server, so the WebView <video>
@@ -66,7 +66,7 @@ export async function transcodeToPlayableUrl(inputUrl, { headers = {} } = {}) {
   const result = await startTranscode({ inputUrl, headers });
   const playbackUrl = result?.playbackUrl;
   if (!playbackUrl) {
-    throw new Error('Mobile-FFmpeg did not return a playable stream.');
+    throw new Error('FFmpegKitNext did not return a playable stream.');
   }
   // Give the local server + ffmpeg a moment to write the first fragments so
   // <video> sees a valid fMP4 header on the first request.

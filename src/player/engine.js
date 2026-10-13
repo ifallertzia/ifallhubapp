@@ -294,7 +294,7 @@ export async function closeActivePlayer(video, activePlayer) {
       /* Already disposed. */
     }
   }
-  // Stop any Mobile-FFmpeg transcode feeding the previous stream.
+  // Stop any FFmpegKitNext transcode feeding the previous stream.
   void shutdownTranscode();
   if (video) {
     video.pause();
@@ -466,7 +466,7 @@ async function openAttempt({ playback, url, adaptive, video, signal }) {
  * Opens one resolved stream. Resolves with `{ played, error, cancelled }` and
  * hands back the shaka instance so the caller can destroy it later.
  *
- * H.265/HEVC and .mkv releases are routed through Mobile-FFmpeg on Android
+ * H.265/HEVC and .mkv releases are routed through FFmpegKitNext on Android
  * (live transcode to H.264 served from 127.0.0.1); a codec failure during a
  * direct attempt automatically retries through the same path.
  */
@@ -495,7 +495,7 @@ export async function openStream({ playback, video, signal, onTrack, release, on
   let adaptive = isAdaptive(playback);
   if (nativeCapable && needsNativeTranscode(release || {}, directUrl)) {
     try {
-      onStatus?.('Mobile-FFmpeg: live-transcoding this release to H.264…');
+      onStatus?.('FFmpegKitNext: live-transcoding this release to H.264…');
       url = await transcodeToPlayableUrl(directUrl);
       adaptive = false;
       usedTranscode = true;
@@ -508,7 +508,7 @@ export async function openStream({ playback, video, signal, onTrack, release, on
   let result = await runAttempt(url, adaptive);
 
   // Direct attempt failed with a codec/container error → retry through
-  // Mobile-FFmpeg exactly once before giving up on this link.
+  // FFmpegKitNext exactly once before giving up on this link.
   if (
     !result.played &&
     !result.cancelled &&
@@ -517,7 +517,7 @@ export async function openStream({ playback, video, signal, onTrack, release, on
     (result.error?.kind === ERROR_KINDS.codec || needsNativeTranscode(release || {}, directUrl))
   ) {
     try {
-      onStatus?.('Codec not supported — switching to Mobile-FFmpeg transcoder…');
+      onStatus?.('Codec not supported — switching to FFmpegKitNext transcoder…');
       const transcodedUrl = await transcodeToPlayableUrl(directUrl);
       usedTranscode = true;
       const retry = await runAttempt(transcodedUrl, false);

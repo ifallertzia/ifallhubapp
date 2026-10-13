@@ -49,6 +49,10 @@ repositories {
     flatDir{
         dirs '../capacitor-cordova-android-plugins/src/main/libs', 'libs'
     }
+    // CI and the documented local setup unpack the pinned FFmpegKitNext Maven
+    // bundle here. The original Mobile-FFmpeg/FFmpegKit Central artifacts were
+    // retired, so this avoids relying on coordinates that no longer resolve.
+    maven { url rootProject.file('vendor/ffmpeg-kit-next-maven') }
     google()
     mavenCentral()
 }
@@ -64,9 +68,10 @@ dependencies {
     androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
     implementation project(':capacitor-cordova-android-plugins')
 
-    // Mobile-FFmpeg (full build ships libx264/aac + HEVC decode) — powers the
-    // H.265/HEVC live-transcode path used by the Ifallhub player.
-    implementation 'com.arthenica:mobile-ffmpeg-full:4.4.LTS'
+    // FFmpegKitNext's full-GPL build supplies libx264/aac plus HEVC decoding
+    // for the live-transcode path. Its pinned local Maven bundle is prepared
+    // before Gradle runs; upstream Central artifacts are retired.
+    implementation 'com.arthenica:ffmpeg-kit-next:9.0.0'
 }
 
 apply from: 'capacitor.build.gradle'

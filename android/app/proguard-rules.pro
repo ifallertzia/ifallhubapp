@@ -1,6 +1,6 @@
 # Ifallhub Android — ProGuard/R8 rules.
 #
-# Keep Capacitor plugins and Mobile-FFmpeg so the JS bridge and the native
+# Keep Capacitor plugins and FFmpegKit so the JS bridge and the native
 # transcoder survive minification (release builds run with minifyEnabled true).
 
 # --- Capacitor -------------------------------------------------------------
@@ -14,9 +14,9 @@
 -keepattributes *Annotation*
 -dontwarn com.getcapacitor.**
 
-# --- Mobile-FFmpeg ---------------------------------------------------------
--keep class com.arthenica.mobileffmpeg.** { *; }
--dontwarn com.arthenica.mobileffmpeg.**
+# --- FFmpegKitNext ---------------------------------------------------------
+-keep class com.arthenica.ffmpegkit.** { *; }
+-dontwarn com.arthenica.ffmpegkit.**
 
 # --- WebView JS bridge -----------------------------------------------------
 -keepclassmembers class fqcn.of.javascript.interface.for.webview {

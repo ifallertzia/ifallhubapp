@@ -14,7 +14,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * Tiny loopback HTTP server used to feed Mobile-FFmpeg transcodes into the
+ * Tiny loopback HTTP server used to feed FFmpegKit transcodes into the
  * WebView &lt;video&gt; element.
  *
  * <p>FFmpeg writes a fragmented MP4 ({@code -movflags frag_keyframe+empty_moov})

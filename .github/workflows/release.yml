@@ -39,19 +39,28 @@ jobs:
           distribution: 'temurin'
 
       - name: Setup Android SDK
+        shell: bash
         run: |
+          # Keep manual releases as strict as the PR build: a missing SDK must
+          # fail here rather than later during Gradle configuration.
+          set -euo pipefail
           SDK_ROOT="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
-          echo "ANDROID_HOME=$SDK_ROOT" >> "$GITHUB_ENV"
-          echo "ANDROID_SDK_ROOT=$SDK_ROOT" >> "$GITHUB_ENV"
           SDKMANAGER="$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
           if [ ! -x "$SDKMANAGER" ]; then
             SDKMANAGER="$(find "$SDK_ROOT/cmdline-tools" -name sdkmanager -type f 2>/dev/null | head -1)"
           fi
-          if [ -n "$SDKMANAGER" ]; then
-            yes | "$SDKMANAGER" --licenses > /dev/null 2>&1 || true
-            "$SDKMANAGER" "platforms;android-34" "build-tools;34.0.0" > /dev/null 2>&1 || true
-          fi
-          echo "Android SDK at $SDK_ROOT"
+          test -x "$SDKMANAGER"
+          echo "ANDROID_HOME=$SDK_ROOT" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$SDK_ROOT" >> "$GITHUB_ENV"
+          # `yes` is expected to receive SIGPIPE once sdkmanager has accepted
+          # all licenses; keep pipefail disabled just for this pipeline.
+          set +o pipefail
+          yes | "$SDKMANAGER" --licenses > /dev/null
+          set -o pipefail
+          "$SDKMANAGER" --install "platforms;android-34" "build-tools;34.0.0"
+          test -d "$SDK_ROOT/platforms/android-34"
+          test -d "$SDK_ROOT/build-tools/34.0.0"
+          echo "Android SDK 34 ready at $SDK_ROOT"
 
       - name: Prepare signing keystore
         env:
@@ -82,6 +91,10 @@ jobs:
             } >> "$GITHUB_ENV"
           fi
 
+      - name: Fetch pinned FFmpegKitNext bundle
+        shell: bash
+        run: bash scripts/fetch-ffmpeg-kit-next.sh
+
       - name: Build Android APK
         shell: bash
         run: |
@@ -110,12 +123,12 @@ jobs:
           body: |
             ## Ifallhub Android App
 
-            Full-featured movie streaming app with H.265/HEVC support via Mobile-FFmpeg.
+            Full-featured movie streaming app with H.265/HEVC support via FFmpegKitNext.
 
             ### Features
             - Browse movies, series, and anime (Discover)
             - Search across multiple providers
-            - Video playback with H.265/HEVC + MKV support (Mobile-FFmpeg)
+            - Video playback with H.265/HEVC + MKV support (FFmpegKitNext)
             - Server rotation with auto-fallback
             - Quality selection, subtitles, episode navigation, auto-play next
             - Watchlist, ratings and progress tracking

@@ -4,6 +4,9 @@ node_modules/
 # Web build output
 dist/
 
+# Downloaded in CI (and by the documented local release-build setup).
+android/vendor/ffmpeg-kit-next-maven/
+
 # IDE / OS
 .idea/
 .vscode/

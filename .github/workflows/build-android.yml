@@ -119,8 +119,9 @@ jobs:
           ./gradlew assembleRelease --stacktrace 2>&1 | tee ../gradle-build.log | tail -60
           code=$?
           if [ "$code" -ne 0 ]; then
-            ERR=$(grep -E 'FAILURE:|What went wrong|^> |error:|Caused by|Execution failed|Could not|not found' ../gradle-build.log | head -20 | tr '\n' '|' | cut -c1-500)
-            echo "::error title=Gradle build failed (exit $code)::$ERR"
+            echo "::error title=gradle-failure-block::$(awk '/FAILURE:/{flag=1} flag' ../gradle-build.log | grep -vE '^\s+at ' | head -12 | tr '\n' '|' | cut -c1-900)"
+            echo "::error title=gradle-log-tail::$(tail -12 ../gradle-build.log | tr '\n' '|' | cut -c1-900)"
+            echo "::error title=gradle-error-lines::$(grep -nE 'error:|Cannot|Could not|not found|No such|unresolved|Exception' ../gradle-build.log | grep -v 'Download' | tail -12 | tr '\n' '|' | cut -c1-900)"
           fi
           exit $code
 

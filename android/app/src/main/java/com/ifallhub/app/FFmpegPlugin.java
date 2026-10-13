@@ -175,8 +175,9 @@ public class FFmpegPlugin extends Plugin {
             Iterator<String> keys = headers.keys();
             while (keys.hasNext()) {
                 String key = keys.next();
-                Object value = headers.get(key);
-                if (value != null) {
+                // opt() avoids JSONException from malformed bridge payloads.
+                Object value = headers.opt(key);
+                if (value != null && value != JSONObject.NULL) {
                     headerBlock.append(key).append(": ").append(String.valueOf(value)).append("\r\n");
                 }
             }

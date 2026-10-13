@@ -66,7 +66,9 @@ dependencies {
 
     // Mobile-FFmpeg (full build ships libx264/aac + HEVC decode) — powers the
     // H.265/HEVC live-transcode path used by the Ifallhub player.
-    implementation 'com.arthenica:mobile-ffmpeg-full:4.4.LTS'
+    // v4.4 is the Android artifact retained on Maven Central. The LTS-suffixed
+    // coordinate was never published there, so resolving it breaks clean CI runs.
+    implementation 'com.arthenica:mobile-ffmpeg-full:4.4'
 }
 
 apply from: 'capacitor.build.gradle'

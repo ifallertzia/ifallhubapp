@@ -112,10 +112,17 @@ jobs:
       - name: Build Android APK
         shell: bash
         run: |
+          set +e
           set -o pipefail
           cd android
           chmod +x ./gradlew
-          ./gradlew assembleRelease --stacktrace 2>&1 | tee ../gradle-build.log | tail -80
+          ./gradlew assembleRelease --stacktrace 2>&1 | tee ../gradle-build.log | tail -60
+          code=$?
+          if [ "$code" -ne 0 ]; then
+            ERR=$(grep -E 'FAILURE:|What went wrong|^> |error:|Caused by|Execution failed|Could not|not found' ../gradle-build.log | head -20 | tr '\n' '|' | cut -c1-500)
+            echo "::error title=Gradle build failed (exit $code)::$ERR"
+          fi
+          exit $code
 
       - name: Upload Gradle log (on failure)
         if: failure()

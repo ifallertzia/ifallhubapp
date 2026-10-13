@@ -10,12 +10,14 @@ import {
   isExpiredLinkError,
   matchReleaseIndex,
   pickBestMatch,
+  playbackStreamType,
   rotationAfter,
   scoreRelease,
   sortReleases,
   unsupportedReason,
 } from '../src/player/engine.js';
 import { apiUrl } from '../src/lib/api.js';
+import { isH265Url, needsNativeTranscode } from '../src/player/ffmpeg-player.js';
 import { prepareSearchQuery, releaseTitleMatches, titlesMatch } from '../src/player/title-match.js';
 
 const hevcRelease = {
@@ -51,6 +53,36 @@ test('unsupportedReason flags HEVC releases and unsafe containers', () => {
   assert.equal(unsupportedReason({}), '');
   // "h265" inside a normal word must not trip the matcher.
   assert.equal(unsupportedReason({ filename: 'The Aviator 2004 1080p' }), '');
+});
+
+test('HEVC matcher recognizes codec names consistently for ranking and native playback', () => {
+  const signals = [
+    'Show.h265.1080p.mkv',
+    'Show.H.265.1080p.mkv',
+    'Show.H 265.1080p.mkv',
+    'Show.x265.1080p.mkv',
+    'Show.HEVC.1080p.mkv',
+    'Show.hvc1.2.4.1080p.mp4',
+    'Show.hev1.1080p.mp4',
+    'Show.dvh1.1080p.mp4',
+    'Show.Dolby Vision.1080p.mp4',
+    'https://cdn.example/video?codec=h%2E265',
+  ];
+  for (const signal of signals) {
+    assert.equal(isH265Url(signal), true, `${signal} should be recognized as H.265`);
+    assert.equal(unsupportedReason({ filename: signal }), /\.(?:mkv|avi|wmv|flv|divx|m2ts|vob)(?:[?#\s]|$)/i.test(signal) ? 'container' : 'codec');
+    assert.equal(needsNativeTranscode({ filename: signal }), true);
+  }
+  assert.equal(isH265Url('Show.H265Galaxy.1080p.mp4'), false);
+  assert.equal(isH265Url('Show.2650.1080p.mp4'), false);
+});
+
+test('playback stream types recognize DASH and HLS manifests/routes', () => {
+  assert.equal(playbackStreamType({ stream_type: 'dash', playback_url: '/api/media/master' }), 'dash');
+  assert.equal(playbackStreamType({ playback_url: '/api/media/token/https/cdn/dash/index.mpd?token=1' }), 'dash');
+  assert.equal(playbackStreamType({ url: 'https://cdn.example/live/master.m3u8?auth=1' }), 'hls');
+  assert.equal(playbackStreamType({ playback_url: '/api/media/token/https/cdn/hls/index.m3u' }), 'hls');
+  assert.equal(playbackStreamType({ stream_type: 'file', url: 'https://cdn.example/movie.mkv' }), 'file');
 });
 
 test('scoreRelease pushes browser-unplayable releases behind playable ones', () => {

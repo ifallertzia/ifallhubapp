@@ -16,7 +16,7 @@ import {
   providerLabel,
 } from '../lib/format.js';
 import { rankRelated, similarByMeta } from '../lib/recommend.js';
-import { subtitleLanguageTag, subtitleToVtt } from '../player/subtitles.js';
+import { pickAutomaticSubtitle, subtitleLanguageTag, subtitleToVtt } from '../player/subtitles.js';
 import { mountPlayerOverlay } from '../player/overlay.js';
 import { app, cardMeta, ensureMeta, rememberGenres } from '../state.js';
 import { navigate, titlePath, watchPath } from '../lib/router.js';
@@ -35,6 +35,26 @@ import { isLibde265Available } from '../player/libde265-player.js';
 
 const CODEC_HINT =
   'Ye link H.265/HEVC ya .mkv me hai — browser ise play nahi kar sakta (mpv/VLC me chalega). Neeche koi doosra release chuno ya TUI use karo.';
+const AUTO_SUBTITLES_KEY = 'ifallhub_auto_subtitles_v1';
+
+function autoSubtitlesPreferred() {
+  try {
+    const stored = window.localStorage?.getItem(AUTO_SUBTITLES_KEY);
+    if (stored === 'off') return false;
+    if (stored === 'on') return true;
+  } catch {
+    /* Private mode or blocked storage: keep the default. */
+  }
+  return true;
+}
+
+function persistAutoSubtitles(value) {
+  try {
+    window.localStorage?.setItem(AUTO_SUBTITLES_KEY, value ? 'on' : 'off');
+  } catch {
+    /* The preference simply will not be remembered. */
+  }
+}
 
 const state = {
   provider: 'moviebox',
@@ -60,6 +80,8 @@ const state = {
   resumeAt: 0,
   progressTimer: 0,
   autoplayNext: true,
+  autoSubtitles: true,
+  autoSubtitleTried: false,
   subtitleSearchController: null,
   subtitleSetId: '',
   subtitleOptions: [],
@@ -88,6 +110,8 @@ export async function renderWatch(container, route) {
   state.entry = null;
   state.selected = 0;
   state.resumeAt = 0;
+  state.autoSubtitles = autoSubtitlesPreferred();
+  state.autoSubtitleTried = false;
   state.subtitleSearchController?.abort();
   state.subtitleSearchController = null;
   state.subtitleSetId = '';
@@ -156,6 +180,7 @@ export async function renderWatch(container, route) {
     getSelectedRelease: () => state.selected,
     getSubtitleOptions: () => state.subtitleOptions,
     getSelectedSubtitle: () => state.selectedSubtitleIndex,
+    getAutoSubtitles: () => state.autoSubtitles,
     getChapters: () => state.details?.chapters || [],
     getCanPrevious: () => Boolean(previousEpisode()),
     getCanNext: () => Boolean(nextEpisode()),
@@ -170,6 +195,7 @@ export async function renderWatch(container, route) {
     },
     onSearchSubtitles: (button) => searchSubtitles(button),
     onSelectSubtitle: (value) => chooseSubtitle(value),
+    onToggleAutoSubtitles: (value) => setAutoSubtitles(value),
     onSelectRelease: (index) => playManual(index),
     onStatus: (message) => setStatus(message, false),
   });
@@ -391,6 +417,7 @@ function bind(container) {
       video.currentTime = state.resumeAt;
       state.resumeAt = 0;
     }
+    void autoLoadSubtitles();
   });
 }
 
@@ -403,10 +430,10 @@ function subtitleOption(index) {
   return state.subtitleOptions.find((option) => Number(option.index) === Number(index));
 }
 
-async function searchSubtitles(button) {
+async function searchSubtitles(button, { automatic = false } = {}) {
   const title = state.details?.title || state.title;
   if (!title || title === 'Now playing') {
-    setSubtitleStatus('This title could not be identified for subtitle search.');
+    if (!automatic) setSubtitleStatus('This title could not be identified for subtitle search.');
     return;
   }
 
@@ -419,9 +446,12 @@ async function searchSubtitles(button) {
   }
   const controller = new AbortController();
   state.subtitleSearchController = controller;
-  const originalLabel = button.textContent;
-  button.disabled = true;
-  button.textContent = 'Searching…';
+  const originalLabel = button?.textContent || '';
+  if (button) {
+    button.disabled = true;
+    button.textContent = 'Searching…';
+  }
+  if (state.autoSubtitles) state.autoSubtitleTried = true;
   setSubtitleStatus(`Searching online captions for ${title}…`);
 
   try {
@@ -439,6 +469,10 @@ async function searchSubtitles(button) {
     state.subtitleOptions = (payload.subtitles || []).map((option, order) => ({
       index: Number.isInteger(Number(option.index)) ? Number(option.index) : order,
       name: String(option.name || 'Unknown'),
+      language: String(option.language || '').toLowerCase(),
+      source: String(option.source || ''),
+      format: String(option.format || ''),
+      downloads: Number(option.downloads) || 0,
     }));
     state.selectedSubtitleIndex = null;
     state.subtitleText = '';
@@ -455,6 +489,14 @@ async function searchSubtitles(button) {
 
     if (!state.subtitleSetId || state.subtitleOptions.length === 0) {
       setSubtitleStatus('No online subtitles were found for this title or episode. Playback will continue without captions.');
+    } else if (state.autoSubtitles) {
+      const best = pickAutomaticSubtitle(state.subtitleOptions);
+      if (best) {
+        setSubtitleStatus(`${state.subtitleOptions.length} subtitles found — turning on ${best.name}.`);
+        await chooseSubtitle(String(best.index));
+        return;
+      }
+      setSubtitleStatus(`${state.subtitleOptions.length} subtitles found. Choose a language to turn captions on.`);
     } else {
       setSubtitleStatus(`${state.subtitleOptions.length} subtitle language${state.subtitleOptions.length === 1 ? '' : 's'} found. Choose one to turn captions on.`);
     }
@@ -465,10 +507,40 @@ async function searchSubtitles(button) {
   } finally {
     if (state.subtitleSearchController === controller) {
       state.subtitleSearchController = null;
-      button.disabled = false;
-      button.textContent = originalLabel || 'CC Find subtitles';
+      if (button) {
+        button.disabled = false;
+        button.textContent = originalLabel || 'CC Find subtitles';
+      }
     }
   }
+}
+
+/** Turns automatic captions on/off (the preference is remembered per browser). */
+function setAutoSubtitles(value) {
+  state.autoSubtitles = Boolean(value);
+  persistAutoSubtitles(state.autoSubtitles);
+  if (!state.autoSubtitles) {
+    state.subtitleSearchController?.abort();
+    setSubtitleStatus('Automatic subtitles off. Pick a language to turn captions on.');
+    return;
+  }
+  state.autoSubtitleTried = false;
+  setSubtitleStatus('Automatic subtitles on — loading the best match…');
+  void autoLoadSubtitles();
+}
+
+/** Search once when playback starts, then enable the best available caption. */
+async function autoLoadSubtitles() {
+  if (!state.autoSubtitles || state.selectedSubtitleIndex !== null || state.autoSubtitleTried) return;
+  const title = state.details?.title || state.title;
+  if (!title || title === 'Now playing') return;
+  state.autoSubtitleTried = true;
+  if (!state.subtitleOptions.length) {
+    await searchSubtitles(null, { automatic: true });
+    return;
+  }
+  const best = pickAutomaticSubtitle(state.subtitleOptions);
+  if (best) await chooseSubtitle(String(best.index));
 }
 
 async function chooseSubtitle(value) {
@@ -488,6 +560,8 @@ async function chooseSubtitle(value) {
   state.selectedSubtitleIndex = index;
   state.subtitleText = '';
   clearActiveSubtitle();
+  const selector = document.querySelector('#subtitle-language');
+  if (selector) selector.value = String(index);
   setSubtitleStatus(`Loading ${option.name} subtitles…`);
 
   try {
@@ -928,14 +1002,19 @@ function paintRotation() {
 }
 
 function showPlaybackLink(attempt) {
-  appendPlaybackLink(document.querySelector('#watch-playback-links'), attempt, window.location.origin);
-  
-  // Also set the current playback for VLC button
+  const rawUrl = attempt.playback?.playback_url || attempt.playback?.url;
+  const url = api.resolvePlaybackUrl(rawUrl);
+  const playback = { ...attempt.playback, playback_url: url, url };
+  const resolvedAttempt = { ...attempt, playback };
+  appendPlaybackLink(document.querySelector('#watch-playback-links'), resolvedAttempt, window.location.origin);
+
+  // The system VLC intent needs the absolute Render media route too; a relative
+  // /api/media path would otherwise resolve against Capacitor's localhost app.
   setCurrentPlayback(
-    attempt.playback,
+    playback,
     attempt.release,
     attempt.provider,
-    attempt.mirrorIndex || 0
+    attempt.mirrorIndex || 0,
   );
 }
 
@@ -978,23 +1057,25 @@ function paintStreams() {
   list.querySelectorAll('[data-play-release]').forEach((button) => {
     button.addEventListener('click', () => playManual(Number(button.dataset.playRelease)));
   });
-  list.querySelectorAll('[data-download]').forEach((button) => {
-    button.addEventListener('click', async () => {
-      button.disabled = true;
-      try {
-        const filename = await downloadRelease({
-          entry: state.entry,
-          releaseIndex: Number(button.dataset.download),
-          mirrorIndex: Number(button.dataset.mirror || 0),
-        });
-        setStatus(`Download started: ${filename}`, false);
-      } catch (error) {
-        setStatus(error?.message || 'Download could not start.', false);
-      } finally {
-        button.disabled = false;
-      }
+    list.querySelectorAll('[data-download]').forEach((button) => {
+      button.addEventListener('click', async () => {
+        button.disabled = true;
+        setStatus('Preparing download…', true);
+        try {
+          const result = await downloadRelease({
+            entry: state.entry,
+            releaseIndex: Number(button.dataset.download),
+            mirrorIndex: Number(button.dataset.mirror || 0),
+            onStatus: (message) => setStatus(message, true),
+          });
+          setStatus(`${result.completed ? 'Download saved' : 'Download started'}: ${result.filename}`, false);
+        } catch (error) {
+          setStatus(error?.message || 'Download could not start.', false);
+        } finally {
+          button.disabled = false;
+        }
+      });
     });
-  });
 }
 
 function showOverlay(message) {

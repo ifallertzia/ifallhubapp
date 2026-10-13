@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { subtitleLanguageTag, subtitleToVtt } from '../src/player/subtitles.js';
+import { pickAutomaticSubtitle, subtitleLanguageTag, subtitleToVtt } from '../src/player/subtitles.js';
 
 test('subtitleToVtt converts UTF-8 SRT timestamps and preserves cue text', () => {
   const source = '\uFEFF1\r\n00:00:01,050 --> 00:00:03,200\r\nHello, world!\r\n';
@@ -35,9 +35,19 @@ test('subtitleToVtt rejects empty and unsupported files', () => {
   assert.throws(() => subtitleToVtt('<html>not a subtitle</html>'), /not supported/);
 });
 
+test('automatic subtitle selection prefers English, then Hindi, then first available', () => {
+  const hindi = { index: 0, name: 'Hindi', language: 'hi' };
+  const english = { index: 1, name: 'English (US)', language: 'en' };
+  const spanish = { index: 2, name: 'Spanish', language: 'es' };
+  assert.equal(pickAutomaticSubtitle([hindi, english, spanish]), english);
+  assert.equal(pickAutomaticSubtitle([hindi, spanish]), hindi);
+  assert.equal(pickAutomaticSubtitle([spanish]), spanish);
+  assert.equal(pickAutomaticSubtitle([]), null);
+});
+
 test('subtitleLanguageTag maps common language names and codes', () => {
   assert.equal(subtitleLanguageTag('English'), 'en');
   assert.equal(subtitleLanguageTag('Hindi'), 'hi');
-  assert.equal(subtitleLanguageTag('eng'), 'eng');
+  assert.equal(subtitleLanguageTag('eng'), 'en');
   assert.equal(subtitleLanguageTag('Unknown caption'), 'und');
 });

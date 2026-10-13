@@ -7,11 +7,18 @@ import { SERVER_ROTATION, displayUiText, itemId, itemProvider, providerLabel } f
 import { pickBestMatch, prepareSearchQuery } from './title-match.js';
 import {
   canNativeTranscode,
+  isH265Url,
+  isUnsupportedContainer,
   needsNativeTranscode,
   shutdownTranscode,
   transcodeToPlayableUrl,
 } from './ffmpeg-player.js';
-import { openExternal } from '../native/ffmpeg.js';
+import {
+  downloadAdaptiveStream,
+  downloadFile,
+  isNativePlatform,
+  openExternal,
+} from '../native/ffmpeg.js';
 
 export { pickBestMatch } from './title-match.js';
 
@@ -33,14 +40,11 @@ const QUALITY_SCORES = [
 // `.mkv`; both make <video>/Shaka fail with "Playback error" while mpv/VLC
 // play them fine. They are ranked last (never dropped) so a manual pick or the
 // download button still works.
-const UNSUPPORTED_CODEC = /(^|[^a-z])(hevc|h\.?265|x\.?265|hvc1|hev1|hvc2|dvh1|dolby\s*vision)([^a-z]|$)/i;
-const UNSUPPORTED_CONTAINER = /\.(mkv|avi|wmv|flv|divx|m2ts|vob)([?#\s]|$)/i;
-
 /** `''` when the browser can probably play it, otherwise `'codec'`/`'container'`. */
 export function unsupportedReason(release = {}) {
   const text = `${release.codec || ''} ${release.filename || ''} ${release.quality || ''}`;
-  if (UNSUPPORTED_CONTAINER.test(text)) return 'container';
-  if (UNSUPPORTED_CODEC.test(text)) return 'codec';
+  if (isUnsupportedContainer(text)) return 'container';
+  if (isH265Url(text)) return 'codec';
   return '';
 }
 
@@ -383,10 +387,18 @@ async function requestPlayback(video, signal) {
   }
 }
 
+export function playbackStreamType(playback = {}) {
+  const reported = String(playback.stream_type || '').toLowerCase();
+  if (reported === 'dash' || reported === 'hls') return reported;
+  const url = String(playback.playback_url || playback.url || '').toLowerCase();
+  const path = url.split(/[?#]/, 1)[0];
+  if (path.endsWith('.mpd') || path.includes('/dash/')) return 'dash';
+  if (path.endsWith('.m3u8') || path.endsWith('.m3u') || path.includes('/hls/')) return 'hls';
+  return 'file';
+}
+
 function isAdaptive(playback) {
-  const type = String(playback.stream_type || '').toLowerCase();
-  const url = String(playback.playback_url || playback.url || '');
-  return type === 'dash' || type === 'hls' || url.includes('.mpd') || url.includes('.m3u8');
+  return playbackStreamType(playback) !== 'file';
 }
 
 /**
@@ -471,9 +483,11 @@ async function openAttempt({ playback, url, adaptive, video, signal }) {
  * direct attempt automatically retries through the same path.
  */
 export async function openStream({ playback, video, signal, onTrack, release, onStatus }) {
-  const directUrl = playback.playback_url || playback.url;
+  // The engine returns relative /api/media routes. Resolve those against the
+  // configured engine (Render on Android), not the Capacitor WebView origin.
+  const directUrl = api.resolvePlaybackUrl(playback.playback_url || playback.url);
   if (!directUrl) {
-    return { played: false, error: new Error('The selected source did not return a playable link.') };
+    return { played: false, error: new Error('The selected source did not return a valid playable link.') };
   }
 
   const nativeCapable = await canNativeTranscode();
@@ -642,8 +656,8 @@ export async function autoPlay({ item, title, year, order, season, episode, isSe
   return { played: false, error: lastError, kind: lastKind, codecSeen, order };
 }
 
-/** Downloads one release/mirror as a file when the link supports it. */
-export async function downloadRelease({ entry, releaseIndex, mirrorIndex }) {
+/** Downloads one release/mirror. Android can also mux DASH/HLS to a single MKV. */
+export async function downloadRelease({ entry, releaseIndex, mirrorIndex, onStatus }) {
   const release = entry.releases[releaseIndex];
   if (!release || !entry.streamSetId) throw new Error('Links are still loading. Try again in a moment.');
   const playback = await api.play({
@@ -651,17 +665,43 @@ export async function downloadRelease({ entry, releaseIndex, mirrorIndex }) {
     releaseIndex: release.serverIndex ?? releaseIndex,
     mirrorIndex,
   });
-  const url = playback.playback_url || playback.url;
-  if (!url) throw new Error('This link did not return a downloadable file.');
-  const type = String(playback.stream_type || 'file').toLowerCase();
-  if (type !== 'file') {
-    throw new Error(`This link is a ${type.toUpperCase()} stream split into segments, so it can't be saved as one file.`);
+  const url = api.resolvePlaybackUrl(playback.playback_url || playback.url);
+  if (!url) throw new Error('This link did not return a valid download URL.');
+
+  const type = playbackStreamType({ ...playback, playback_url: url });
+  const rawName = (displayUiText(release.filename) || 'ifallhub-download')
+    .replace(/[\\/:*?"<>|\u0000-\u001f]+/g, '_')
+    .trim()
+    .slice(0, 180);
+  const filenameFor = (extension = '') => {
+    const knownExtensions = /\.(?:mp4|m4v|mkv|avi|webm|mov|ts|mpd|m3u8|m3u)$/i;
+    if (extension) return `${rawName.replace(knownExtensions, '') || 'ifallhub-download'}.${extension}`;
+    return knownExtensions.test(rawName) ? rawName : `${rawName || 'ifallhub-download'}.mp4`;
+  };
+
+  if (type === 'dash' || type === 'hls') {
+    if (!isNativePlatform()) {
+      throw new Error(`${type.toUpperCase()} is a segmented stream. Download it from the Android app, where FFmpeg can save it as one MKV file.`);
+    }
+    const outputName = filenameFor('mkv');
+    onStatus?.(`Downloading and packaging this ${type.toUpperCase()} stream as ${outputName}…`);
+    const result = await downloadAdaptiveStream({ inputUrl: url, fileName: outputName });
+    if (!result?.success) {
+      throw new Error(result?.error || `FFmpeg could not package this ${type.toUpperCase()} stream. It may be DRM-protected or expired.`);
+    }
+    return { filename: result.fileName || outputName, completed: true };
   }
-  const filename = (displayUiText(release.filename) || 'download').replace(/[\\/:*?"<>|]+/g, '_');
-  // Android: hand the file to the system downloader/browser instead of the
-  // WebView (which ignores the download attribute).
-  const native = await openExternal(url);
-  if (native?.ok) return filename;
+
+  const filename = filenameFor();
+  // Use Android's DownloadManager for normal files so they actually appear in
+  // Downloads instead of merely opening in a browser/player intent.
+  if (isNativePlatform()) {
+    const queued = await downloadFile({ url, fileName: filename });
+    if (queued?.ok) return { filename: queued.fileName || filename, completed: false };
+    const external = await openExternal(url);
+    if (external?.ok) return { filename, completed: false };
+  }
+
   const link = document.createElement('a');
   link.href = url;
   link.download = filename;
@@ -669,10 +709,10 @@ export async function downloadRelease({ entry, releaseIndex, mirrorIndex }) {
   try {
     if (new URL(url, window.location.href).origin !== window.location.origin) link.target = '_blank';
   } catch {
-    /* Relative URL: keep the default behaviour. */
+    /* The URL has already been validated above. */
   }
   document.body.append(link);
   link.click();
   link.remove();
-  return filename;
+  return { filename, completed: false };
 }

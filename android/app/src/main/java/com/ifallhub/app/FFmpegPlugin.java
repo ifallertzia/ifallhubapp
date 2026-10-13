@@ -1,7 +1,13 @@
 package com.ifallhub.app;
 
 import android.net.Uri;
+import android.content.ContentValues;
+import android.content.Context;
 import android.content.Intent;
+import android.app.DownloadManager;
+import android.os.Build;
+import android.os.Environment;
+import android.provider.MediaStore;
 import android.util.Log;
 
 import com.getcapacitor.JSArray;
@@ -19,9 +25,15 @@ import com.arthenica.ffmpegkit.ReturnCode;
 import org.json.JSONObject;
 
 import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicLong;
@@ -99,19 +111,22 @@ public class FFmpegPlugin extends Plugin {
         stopTranscodeInternal();
 
         try {
-            transcodeOutput = new File(getContext().getCacheDir(),
+            File output = new File(getContext().getCacheDir(),
                     "ifallhub_transcode_" + System.currentTimeMillis() + ".mp4");
-            streamServer = new LocalStreamServer(transcodeOutput);
-            int port = streamServer.start();
+            transcodeOutput = output;
+            LocalStreamServer server = new LocalStreamServer(output);
+            streamServer = server;
+            int port = server.start();
 
-            String[] args = buildTranscodeArgs(inputUrl, call.getObject("headers"), transcodeOutput);
+            String[] args = buildTranscodeArgs(inputUrl, call.getObject("headers"), output);
             FFmpegSession session = FFmpegKit.executeWithArgumentsAsync(args, finished -> {
                 Log.i(TAG, "transcode finished rc=" + finished.getReturnCode());
+                if (streamServer == server) server.finish();
             });
             activeSession.set(session.getSessionId());
 
             JSObject ret = new JSObject();
-            ret.put("playbackUrl", streamServer.getPlaybackUrl());
+            ret.put("playbackUrl", server.getPlaybackUrl());
             ret.put("port", port);
             call.resolve(ret);
         } catch (Exception error) {
@@ -136,6 +151,103 @@ public class FFmpegPlugin extends Plugin {
         ret.put("active", server != null && server.isRunning());
         ret.put("playbackUrl", server != null ? server.getPlaybackUrl() : "");
         call.resolve(ret);
+    }
+
+    /** Queue a direct file in Android's DownloadManager. */
+    @PluginMethod
+    public void downloadFile(PluginCall call) {
+        String url = call.getString("url");
+        if (!isHttpUrl(url)) {
+            call.reject("downloadFile() needs an http(s) URL");
+            return;
+        }
+
+        String fileName = sanitizeFileName(call.getString("fileName"));
+        try {
+            DownloadManager manager = (DownloadManager) getContext()
+                    .getSystemService(Context.DOWNLOAD_SERVICE);
+            if (manager == null) {
+                call.reject("Android's DownloadManager is unavailable");
+                return;
+            }
+
+            DownloadManager.Request request = new DownloadManager.Request(Uri.parse(url));
+            request.setTitle(fileName);
+            request.setDescription("Ifallhub video download");
+            request.setMimeType(mimeTypeFor(fileName));
+            request.setNotificationVisibility(
+                    DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
+            request.setAllowedOverMetered(true);
+            request.setAllowedOverRoaming(false);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                request.setDestinationInExternalPublicDir(
+                        Environment.DIRECTORY_DOWNLOADS, "Ifallhub/" + fileName);
+            } else {
+                // App-specific Downloads needs no storage permission on Android 8/9.
+                request.setDestinationInExternalFilesDir(
+                        getContext(), Environment.DIRECTORY_DOWNLOADS, "Ifallhub/" + fileName);
+            }
+
+            long downloadId = manager.enqueue(request);
+            JSObject ret = new JSObject();
+            ret.put("ok", true);
+            ret.put("downloadId", downloadId);
+            ret.put("fileName", fileName);
+            call.resolve(ret);
+        } catch (Exception error) {
+            Log.e(TAG, "downloadFile failed", error);
+            call.reject("Could not start the Android download: " + error.getMessage(), error);
+        }
+    }
+
+    /** Download and mux segmented DASH/HLS media into one MKV in Downloads. */
+    @PluginMethod
+    public void downloadStream(PluginCall call) {
+        String inputUrl = call.getString("inputUrl");
+        if (!isHttpUrl(inputUrl)) {
+            call.reject("downloadStream() needs an http(s) inputUrl");
+            return;
+        }
+
+        String fileName = ensureMatroskaExtension(call.getString("fileName"));
+        File output = new File(getContext().getCacheDir(),
+                "ifallhub_download_" + System.currentTimeMillis() + ".mkv");
+        String[] args = buildDownloadArgs(inputUrl, call.getObject("headers"), output);
+        try {
+            FFmpegKit.executeWithArgumentsAsync(args, session -> {
+                try {
+                    if (!ReturnCode.isSuccess(session.getReturnCode())
+                            || !output.isFile() || output.length() == 0L) {
+                        int code = session.getReturnCode() != null
+                                ? session.getReturnCode().getValue() : -1;
+                        call.reject("FFmpeg could not package this DASH/HLS stream (exit " + code
+                                + "). The link may have expired or the stream may be DRM-protected.");
+                        return;
+                    }
+
+                    long size = output.length();
+                    String savedUri = publishDownload(output, fileName);
+                    JSObject ret = new JSObject();
+                    ret.put("success", true);
+                    ret.put("fileName", fileName);
+                    ret.put("uri", savedUri);
+                    ret.put("sizeBytes", size);
+                    call.resolve(ret);
+                } catch (Exception error) {
+                    Log.e(TAG, "downloadStream save failed", error);
+                    call.reject("The stream was fetched but could not be saved to Downloads: "
+                            + error.getMessage(), error);
+                } finally {
+                    //noinspection ResultOfMethodCallIgnored
+                    output.delete();
+                }
+            });
+        } catch (Exception error) {
+            //noinspection ResultOfMethodCallIgnored
+            output.delete();
+            Log.e(TAG, "downloadStream failed to start", error);
+            call.reject("Could not start FFmpeg DASH/HLS download: " + error.getMessage(), error);
+        }
     }
 
     /** Opens a URL with the system handler (VLC / browser / downloader). */
@@ -163,29 +275,146 @@ public class FFmpegPlugin extends Plugin {
 
     // --- Internals --------------------------------------------------------
 
+    private boolean isHttpUrl(String value) {
+        if (value == null || value.trim().isEmpty()) return false;
+        String scheme = Uri.parse(value.trim()).getScheme();
+        return "http".equalsIgnoreCase(scheme) || "https".equalsIgnoreCase(scheme);
+    }
+
+    private String sanitizeFileName(String value) {
+        String name = value == null ? "" : value.trim();
+        name = name.replaceAll("[\\\\/:*?\\\"<>|\\p{Cntrl}]", "_")
+                .replaceAll("\\s+", " ")
+                .replaceAll("^\\.+", "")
+                .trim();
+        if (name.isEmpty()) name = "ifallhub-video";
+        if (name.length() > 180) name = name.substring(0, 180).trim();
+        return name;
+    }
+
+    private String ensureMatroskaExtension(String value) {
+        String name = sanitizeFileName(value);
+        if (!name.toLowerCase(Locale.ROOT).endsWith(".mkv")) {
+            name = name.replaceAll("(?i)\\.(mp4|m4v|mkv|avi|webm|mov|ts|mpd|m3u8|m3u)$", "");
+            if (name.isEmpty()) name = "ifallhub-video";
+            name += ".mkv";
+        }
+        return name;
+    }
+
+    private String mimeTypeFor(String fileName) {
+        String lower = fileName.toLowerCase(Locale.ROOT);
+        if (lower.endsWith(".mp4") || lower.endsWith(".m4v")) return "video/mp4";
+        if (lower.endsWith(".mkv")) return "video/x-matroska";
+        if (lower.endsWith(".webm")) return "video/webm";
+        return "application/octet-stream";
+    }
+
+    private String publishDownload(File source, String fileName) throws IOException {
+        Context context = getContext();
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            ContentValues values = new ContentValues();
+            values.put(MediaStore.MediaColumns.DISPLAY_NAME, fileName);
+            values.put(MediaStore.MediaColumns.MIME_TYPE, "video/x-matroska");
+            values.put(MediaStore.MediaColumns.RELATIVE_PATH,
+                    Environment.DIRECTORY_DOWNLOADS + "/Ifallhub");
+            values.put(MediaStore.MediaColumns.IS_PENDING, 1);
+
+            Uri destination = null;
+            try {
+                destination = context.getContentResolver().insert(
+                        MediaStore.Downloads.EXTERNAL_CONTENT_URI, values);
+                if (destination == null) throw new IOException("Android could not create a Downloads entry");
+                try (InputStream input = new FileInputStream(source);
+                     OutputStream output = context.getContentResolver().openOutputStream(destination, "w")) {
+                    if (output == null) throw new IOException("Android could not open the Downloads file");
+                    copy(input, output);
+                }
+
+                ContentValues ready = new ContentValues();
+                ready.put(MediaStore.MediaColumns.IS_PENDING, 0);
+                context.getContentResolver().update(destination, ready, null, null);
+                return destination.toString();
+            } catch (IOException error) {
+                if (destination != null) context.getContentResolver().delete(destination, null, null);
+                throw error;
+            } catch (RuntimeException error) {
+                if (destination != null) context.getContentResolver().delete(destination, null, null);
+                throw error;
+            }
+        }
+
+        // Android 8/9 cannot insert into MediaStore.Downloads. Save to the
+        // app-specific Download folder (still visible through device storage).
+        File external = context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS);
+        File directory = new File(external != null ? external : context.getFilesDir(), "Ifallhub");
+        if (!directory.exists() && !directory.mkdirs()) {
+            throw new IOException("Could not create the app Downloads folder");
+        }
+        File destination = new File(directory, fileName);
+        try (InputStream input = new FileInputStream(source);
+             OutputStream output = new FileOutputStream(destination, false)) {
+            copy(input, output);
+        }
+        return destination.getAbsolutePath();
+    }
+
+    private void copy(InputStream input, OutputStream output) throws IOException {
+        byte[] buffer = new byte[64 * 1024];
+        int count;
+        while ((count = input.read(buffer)) != -1) output.write(buffer, 0, count);
+        output.flush();
+    }
+
+    private void appendHeaders(List<String> args, JSObject headers) {
+        if (headers == null) return;
+        StringBuilder headerBlock = new StringBuilder();
+        Iterator<String> keys = headers.keys();
+        while (keys.hasNext()) {
+            String key = keys.next();
+            Object value = headers.opt(key);
+            if (value == null || value == JSONObject.NULL
+                    || !key.matches("[A-Za-z0-9-]+")) continue;
+            String cleanValue = String.valueOf(value).replace("\r", "").replace("\n", "");
+            headerBlock.append(key).append(": ").append(cleanValue).append("\r\n");
+        }
+        if (headerBlock.length() > 0) {
+            args.add("-headers");
+            args.add(headerBlock.toString());
+        }
+    }
+
+    private String[] buildDownloadArgs(String inputUrl, JSObject headers, File output) {
+        List<String> args = new ArrayList<>();
+        args.add("-y");
+        args.add("-hide_banner");
+        args.add("-rw_timeout");
+        args.add("30000000");
+        appendHeaders(args, headers);
+        args.add("-i");
+        args.add(inputUrl);
+        args.add("-map");
+        args.add("0:v:0?");
+        args.add("-map");
+        args.add("0:a:0?");
+        args.add("-c");
+        args.add("copy");
+        args.add("-max_muxing_queue_size");
+        args.add("2048");
+        args.add("-f");
+        args.add("matroska");
+        args.add(output.getAbsolutePath());
+        return args.toArray(new String[0]);
+    }
+
     private String[] buildTranscodeArgs(String inputUrl, JSObject headers, File output) {
         List<String> args = new ArrayList<>();
         args.add("-y");
         args.add("-hide_banner");
 
         // Extra request headers for the source (signed CDN links often need
-        // cookies/referers).
-        if (headers != null) {
-            StringBuilder headerBlock = new StringBuilder();
-            Iterator<String> keys = headers.keys();
-            while (keys.hasNext()) {
-                String key = keys.next();
-                // opt() avoids JSONException from malformed bridge payloads.
-                Object value = headers.opt(key);
-                if (value != null && value != JSONObject.NULL) {
-                    headerBlock.append(key).append(": ").append(String.valueOf(value)).append("\r\n");
-                }
-            }
-            if (headerBlock.length() > 0) {
-                args.add("-headers");
-                args.add(headerBlock.toString());
-            }
-        }
+        // cookies/referers); names and values are sanitized by the helper.
+        appendHeaders(args, headers);
 
         // Ignore long network stalls on flaky mirrors, then live-encode.
         args.add("-rw_timeout");

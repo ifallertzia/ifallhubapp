@@ -14,10 +14,10 @@ Built with **Capacitor 6** + **FFmpegKitNext** · App name: `ifallhub` · Packag
 
 This repository is the **Capacitor Android wrapper** for the Ifallhub web app. It ports the complete web frontend (Discover, Search, Watch, My List, Tracker — including the full playback engine) to a native Android package and adds:
 
-- **FFmpegKitNext (`com.arthenica:ffmpeg-kit-next:9.0.0`, full-GPL)** — live H.265/HEVC → H.264 transcoding so *every* release plays in-app (the web build can only hint "open in VLC" for HEVC/.mkv). The pinned local Maven bundle is fetched with an SHA-256 check because the original Mobile-FFmpeg/FFmpegKit Maven Central artifacts are retired.
+- **FFmpegKitNext (`com.arthenica:ffmpeg-kit-next:9.0.0`, full-GPL)** — live H.265/HEVC → H.264 transcoding for compatible native streams, plus DASH/HLS remuxing to a single MKV download. The pinned local Maven bundle is fetched with an SHA-256 check because the original Mobile-FFmpeg/FFmpegKit Maven Central artifacts are retired.
 - **Native loopback stream server** — the transcode is served to the WebView `<video>` element as a growing fragmented MP4, so the entire overlay UI (gestures, subtitles, quality menu) keeps working.
 - **Capacitor Preferences** — watchlist/ratings/progress survive restarts even when the engine is offline.
-- **Configurable engine URL** — point the app at your own Ifallhub engine (`cargo run -- --web-api`) from the in-app Settings dialog.
+- **Built-in engine default** — Android connects to `https://ifallhub.onrender.com` on first launch; Settings can override it for a self-hosted engine. Browser builds stay same-origin.
 - **CORS-free networking** — `CapacitorHttp` routes API calls through the native HTTP stack.
 - **AI-generated branding** — icon, adaptive icons (all densities), splash screens, Play Store banner.
 - **GitHub Actions CI** — APK built automatically on every PR and released on merge to `main`.
@@ -102,7 +102,7 @@ cargo run -- --web-api        # http://127.0.0.1:8787
 IFALLHUB_API_URL=http://127.0.0.1:8787 npm run dev
 ```
 
-On Android, open **Settings (gear icon)** in the top bar and enter the engine URL (e.g. `https://your-deployment.example.com`), plus the access key if the deployment has one. It's stored on the device.
+The Android app connects to `https://ifallhub.onrender.com` automatically on first launch, so you do not need to enter an Engine URL after opening it. To use a different deployment, open **Settings (gear icon)** in the top bar and replace the URL; add an access key if that deployment requires one. Custom settings are stored on the device. Browser deployments continue to use their same-origin API.
 
 ### Android build
 
@@ -136,7 +136,7 @@ python3 scripts/generate-icons.py
 
 ## 🔨 CI/CD
 
-- **`build-android.yml`** — runs the 49 unit tests, builds the web bundle, syncs Capacitor, builds a signed `ifallhub-release.apk`, uploads it as an artifact (30 days) and — on pushes to `main` — publishes a GitHub Release (`v1.0.<run>`).
+- **`build-android.yml`** — runs the unit tests, builds the web bundle, syncs Capacitor, builds a signed `ifallhub-release.apk`, uploads it as an artifact (30 days) and — on pushes to `main` — publishes a GitHub Release (`v1.0.<run>`).
 - **`release.yml`** — manual `workflow_dispatch` release with a custom version number.
 - **Signing:** add repository secrets `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEYSTORE_ALIAS`, `ANDROID_KEYSTORE_ALIAS_PASSWORD` for production signing. Without them CI generates a throwaway keystore so the APK is still installable.
 

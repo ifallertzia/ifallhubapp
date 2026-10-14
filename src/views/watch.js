@@ -3,8 +3,8 @@
 
 import * as api from '../lib/api.js';
 import * as library from '../lib/library.js';
-import { appendPlaybackLink } from '../ui/playback-links.js';
-import { setCurrentPlayback, clearCurrentPlayback, createVlcButton, hasPlaybackUrl, copyPlaybackUrl, getCurrentPlaybackUrl } from '../ui/vlc-button.js';
+import { appendPlaybackLink, playbackLinkUrls } from '../ui/playback-links.js';
+import { setCurrentPlayback, clearCurrentPlayback, createVlcButton, hasPlaybackUrl, copyPlaybackUrl, getCurrentPlaybackUrl, writeClipboard } from '../ui/vlc-button.js';
 import { openExternal } from '../native/ffmpeg.js';
 import { cardHtml, rowHtml, spinnerHtml } from '../ui/components.js';
 import {
@@ -139,10 +139,17 @@ export async function renderWatch(container, route) {
         <div class="server-rotation" id="server-rotation" aria-label="Server order"></div>
       </div>
 
-      <!-- Playback links panel - Hidden from UI but functionality kept for VLC button -->
-      <div id="watch-playback-links" hidden aria-hidden="true">
-        <p class="muted" data-links-empty>No playback links resolved yet.</p>
-      </div>
+      <section class="playback-links" aria-labelledby="playback-links-title">
+        <div class="playback-links-head">
+          <h3 id="playback-links-title">Playback links</h3>
+          <span class="playback-links-count" data-links-count aria-live="polite">0 links</span>
+          <button class="ghost-button small" type="button" data-copy-all-links disabled>Copy all</button>
+        </div>
+        <p class="muted">Resolved links appear here in any format, including H.265, MKV, DASH and HLS. Use Copy link for VLC/mpv; session links can expire.</p>
+        <div id="watch-playback-links">
+          <p class="muted" data-links-empty>No playback links resolved yet.</p>
+        </div>
+      </section>
 
       <section class="watch-controls">
         <div class="watch-title-block">
@@ -390,6 +397,9 @@ function bind(container) {
   container.querySelector('[data-retry-server]')?.addEventListener('click', () => {
     hideOverlay();
     startRotation({ startAfter: state.current || undefined });
+  });
+  container.querySelector('[data-copy-all-links]')?.addEventListener('click', () => {
+    void copyAllPlaybackLinks();
   });
   const watchlistButton = container.querySelector('[data-watchlist]');
   watchlistButton?.addEventListener('click', async () => {
@@ -1004,18 +1014,38 @@ function paintRotation() {
 function showPlaybackLink(attempt) {
   const rawUrl = attempt.playback?.playback_url || attempt.playback?.url;
   const url = api.resolvePlaybackUrl(rawUrl);
-  const playback = { ...attempt.playback, playback_url: url, url };
-  const resolvedAttempt = { ...attempt, playback };
-  appendPlaybackLink(document.querySelector('#watch-playback-links'), resolvedAttempt, window.location.origin);
+  if (!url) return null;
 
-  // The system VLC intent needs the absolute Render media route too; a relative
-  // /api/media path would otherwise resolve against Capacitor's localhost app.
-  setCurrentPlayback(
-    playback,
-    attempt.release,
-    attempt.provider,
-    attempt.mirrorIndex || 0,
+  const playback = { ...attempt.playback, playback_url: url, url };
+  const reason = unsupportedReason(attempt.release);
+  const note = reason === 'codec'
+    ? 'H.265/HEVC — browser decode nahi kar sakta, mpv/VLC me chalega'
+    : reason === 'container'
+      ? '.mkv container — browser me nahi, mpv/VLC me chalega'
+      : '';
+  const row = appendPlaybackLink(
+    document.querySelector('#watch-playback-links'),
+    { ...attempt, playback, note },
+    window.location.origin,
   );
+
+  // The system VLC intent needs the absolute engine media route too; a relative
+  // /api/media path would otherwise resolve against Capacitor's localhost app.
+  setCurrentPlayback(playback, attempt.release, attempt.provider, attempt.mirrorIndex || 0);
+  return row;
+}
+
+async function copyAllPlaybackLinks() {
+  const urls = playbackLinkUrls(document.querySelector('#watch-playback-links'));
+  if (!urls.length) {
+    setStatus('No links to copy yet — playback resolves them one by one.', false);
+    return;
+  }
+  if (await writeClipboard(urls.join('\n'))) {
+    setStatus(`${urls.length} link${urls.length === 1 ? '' : 's'} copied — paste into mpv/VLC.`, false);
+  } else {
+    setStatus('Could not copy automatically — use each link’s Copy link button.', false);
+  }
 }
 
 function paintStreams() {
@@ -1044,10 +1074,12 @@ function paintStreams() {
           </button>
           <div class="stream-downloads">
             ${mirrors
-              .map(
-                (mirror, mirrorIndex) =>
-                  `<button class="ghost-button small" type="button" data-download="${index}" data-mirror="${mirrorIndex}">↓ ${escapeHtml(mirrors.length > 1 ? mirror.label || `Link ${mirrorIndex + 1}` : 'Download')}</button>`,
-              )
+              .map((mirror, mirrorIndex) => {
+                const mirrorLabel = mirrors.length > 1 ? mirror.label || `Link ${mirrorIndex + 1}` : '';
+                return `
+                  <button class="ghost-button small" type="button" data-copy-release="${index}" data-mirror="${mirrorIndex}">⧉ ${escapeHtml(mirrorLabel ? `Copy ${mirrorLabel}` : 'Copy link')}</button>
+                  <button class="ghost-button small" type="button" data-download="${index}" data-mirror="${mirrorIndex}">↓ ${escapeHtml(mirrorLabel || 'Download')}</button>`;
+              })
               .join('')}
           </div>
         </div>`;
@@ -1057,25 +1089,94 @@ function paintStreams() {
   list.querySelectorAll('[data-play-release]').forEach((button) => {
     button.addEventListener('click', () => playManual(Number(button.dataset.playRelease)));
   });
-    list.querySelectorAll('[data-download]').forEach((button) => {
-      button.addEventListener('click', async () => {
-        button.disabled = true;
-        setStatus('Preparing download…', true);
-        try {
-          const result = await downloadRelease({
-            entry: state.entry,
-            releaseIndex: Number(button.dataset.download),
-            mirrorIndex: Number(button.dataset.mirror || 0),
-            onStatus: (message) => setStatus(message, true),
-          });
-          setStatus(`${result.completed ? 'Download saved' : 'Download started'}: ${result.filename}`, false);
-        } catch (error) {
-          setStatus(error?.message || 'Download could not start.', false);
-        } finally {
-          button.disabled = false;
-        }
-      });
+  list.querySelectorAll('[data-copy-release]').forEach((button) => {
+    button.addEventListener('click', () => {
+      void resolveAndCopyLink(
+        Number(button.dataset.copyRelease),
+        Number(button.dataset.mirror || 0),
+        button,
+      );
     });
+  });
+  list.querySelectorAll('[data-download]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      button.disabled = true;
+      setStatus('Preparing download…', true);
+      try {
+        const result = await downloadRelease({
+          entry: state.entry,
+          releaseIndex: Number(button.dataset.download),
+          mirrorIndex: Number(button.dataset.mirror || 0),
+          onStatus: (message) => setStatus(message, true),
+        });
+        setStatus(`${result.completed ? 'Download saved' : 'Download started'}: ${result.filename}`, false);
+      } catch (error) {
+        setStatus(error?.message || 'Download could not start.', false);
+      } finally {
+        button.disabled = false;
+      }
+    });
+  });
+}
+
+async function resolveAndCopyLink(releaseIndex, mirrorIndex, button) {
+  const entry = state.entry;
+  const release = entry?.releases?.[releaseIndex];
+  if (!entry?.streamSetId || !release) {
+    showVlcToast('No link is available to copy yet.', 'error');
+    return;
+  }
+
+  const originalLabel = button.textContent;
+  const runId = state.runId;
+  button.disabled = true;
+  button.textContent = 'Resolving…';
+  setStatus(`Resolving ${providerLabel(entry.provider)} link…`, true);
+  try {
+    const playback = await api.play(
+      {
+        streamSetId: entry.streamSetId,
+        releaseIndex: release.serverIndex ?? releaseIndex,
+        mirrorIndex,
+      },
+      state.controller?.signal ? { signal: state.controller.signal } : {},
+    );
+    if (runId !== state.runId || state.entry?.streamSetId !== entry.streamSetId) return;
+
+    const url = api.resolvePlaybackUrl(playback.playback_url || playback.url);
+    if (!url) throw new Error('This link did not return a valid playback URL.');
+    const row = showPlaybackLink({
+      playback: { ...playback, playback_url: url, url },
+      release,
+      provider: entry.provider,
+      mirrorIndex,
+    });
+
+    if (await writeClipboard(url)) {
+      button.textContent = 'Copied!';
+      showVlcToast('Link copied — paste it into VLC/mpv. DASH/HLS links are manifests.', 'success');
+      window.setTimeout(() => {
+        button.textContent = originalLabel;
+      }, 2200);
+      setStatus(`Link copied: ${displayUiText(release.filename || 'Stream')}`, false);
+    } else {
+      const input = row?.querySelector?.('.playback-link-url');
+      input?.focus?.();
+      input?.select?.();
+      button.textContent = 'Select & copy manually';
+      showVlcToast('Link resolved. It is selected below; copy it manually or use the row button.', 'info');
+      setStatus('Link resolved — copy it from Playback links below.', false);
+    }
+  } catch (error) {
+    if (error?.name !== 'AbortError') {
+      const message = error?.message || 'Could not resolve this link.';
+      setStatus(message, false);
+      showVlcToast(displayUiText(message), 'error');
+    }
+  } finally {
+    button.disabled = false;
+    if (button.textContent === 'Resolving…') button.textContent = originalLabel;
+  }
 }
 
 function showOverlay(message) {

@@ -135,6 +135,26 @@ test('buildStreamEntry keeps the API index so /api/play stays correct', () => {
   assert.equal(entry.releases[0].serverIndex, 1);
 });
 
+test('buildStreamEntry keeps every release format available for copying', () => {
+  const releases = [
+    { filename: 'Film.1080p.H265.mkv', codec: 'h265', quality: '1080p', mirrors: [{}] },
+    { filename: 'Film.1080p.mp4', codec: 'h264', quality: '1080p', mirrors: [{}] },
+    { filename: 'Film.2160p.mpd', codec: 'av1', quality: '2160p', mirrors: [{}] },
+  ];
+  const entry = buildStreamEntry('moviebox', { id: 'moviebox:1' }, {
+    stream_set_id: 'set-formats',
+    releases,
+  });
+
+  assert.equal(entry.releases.length, releases.length);
+  assert.deepEqual(
+    new Set(entry.releases.map((release) => release.filename)),
+    new Set(releases.map((release) => release.filename)),
+  );
+  assert.ok(entry.releases.some((release) => release.codec === 'h265' && release.filename.endsWith('.mkv')));
+  assert.ok(entry.releases.some((release) => release.filename.endsWith('.mpd')));
+});
+
 test('describeShakaError turns Shaka codes into actionable messages', () => {
   const codec = describeShakaError({ code: 4032, severity: 2, message: 'Unsupported by browser' });
   assert.equal(codec.kind, ERROR_KINDS.codec);

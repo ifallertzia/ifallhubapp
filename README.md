@@ -31,7 +31,7 @@ Everything from [ifallertzia/ifallhub](https://github.com/ifallertzia/ifallhub) 
 | **Discover** | Hero carousel, Netflix-style rails (Trending, Top Rated, Fresh, Most Watched), Continue Watching, "Because you watch on Ifallhub", My List rail |
 | **Search** | Live suggestions, source/type/sort filters, genre pages |
 | **Details** | IMDb rating ring, credits, episodes list, stream list with sizes/codec badges, personal rating, "More like this" |
-| **Watch** | Auto server rotation (Sakshi → Ritu → Siddharth → Ifallhub add-ons → Shreya → Everyone), release/mirror picking, quality badges, resume position, progress saving, episode prev/next, auto-play next episode |
+| **Watch** | Auto server rotation (Sakshi → Ritu → Siddharth → Ifallhub add-ons → Shreya → Everyone), release/mirror picking, visible copyable playback URLs for every format (file, H.265/MKV, DASH/HLS), quality badges, resume position, progress saving, episode prev/next, auto-play next episode |
 | **Player** | Play/pause/seek, fullscreen + rotate, gestures (double-tap seek 2x boost, swipe volume/brightness/seek), lock controls, playback speed, quality switching, aspect ratio, PiP, background play toggle, screenshot, clock/battery pill |
 | **Subtitles** | Multi-language search, SRT/ASS → WebVTT conversion, language tags |
 | **Library** | Watchlist, 1–10 ratings, watch progress — synced to the engine (`/api/library` + SSE), local fallback on device |
@@ -143,8 +143,8 @@ python3 scripts/generate-icons.py
 ## 🧪 Testing
 
 ```bash
-npm test             # 49 tests: engine rotation/scoring, title matching, format,
-                     # recommendations, subtitle conversion, playback links
+npm test             # 62 tests: engine rotation/scoring, title matching, format,
+                     # recommendations, subtitle conversion, playback-link copying
 ```
 
 ## 📝 Notes & limitations

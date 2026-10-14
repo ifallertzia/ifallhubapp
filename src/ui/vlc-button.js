@@ -59,21 +59,45 @@ export function hasPlaybackUrl() {
 }
 
 /**
+ * Clipboard write for browsers and Android WebViews, with a legacy fallback
+ * for contexts where the Clipboard API is denied or unavailable.
+ */
+export async function writeClipboard(text) {
+  if (!text) return false;
+  try {
+    if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch {
+    /* Private browsing or a denied permission: fall through to execCommand. */
+  }
+
+  let input;
+  try {
+    if (typeof document === 'undefined' || !document.body) return false;
+    input = document.createElement('textarea');
+    input.value = text;
+    input.style.position = 'fixed';
+    input.style.opacity = '0';
+    input.style.pointerEvents = 'none';
+    document.body.appendChild(input);
+    input.select();
+    return Boolean(document.execCommand?.('copy'));
+  } catch {
+    return false;
+  } finally {
+    if (input?.parentNode) input.parentNode.removeChild(input);
+  }
+}
+
+/**
  * Copy the current playback URL to clipboard
  * Returns true if successful, false otherwise
  */
 export async function copyPlaybackUrl() {
-  if (!currentPlaybackUrl) {
-    return false;
-  }
-  
-  try {
-    await navigator.clipboard.writeText(currentPlaybackUrl);
-    return true;
-  } catch (error) {
-    console.error('Failed to copy URL:', error);
-    return false;
-  }
+  if (!currentPlaybackUrl) return false;
+  return writeClipboard(currentPlaybackUrl);
 }
 
 /**
